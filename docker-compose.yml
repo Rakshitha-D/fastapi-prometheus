@@ -1,4 +1,4 @@
-version: "3"
+version: "3.9"
 services:
   fastapi:
     image: api-prom:1.0
@@ -25,6 +25,11 @@ services:
       - postgres
     ports:
       - 9090:9090
+  grafana:
+    container_name: grafana
+    image: grafana/grafana
+    ports:
+      - 3000:3000
 volumes:
   data_pg:
   prometheus-data:
