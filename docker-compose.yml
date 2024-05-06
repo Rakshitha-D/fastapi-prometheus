@@ -28,8 +28,11 @@ services:
   grafana:
     container_name: grafana
     image: grafana/grafana
+    volumes:
+      - grafana-storage:/var/lib/grafana
     ports:
       - 3000:3000
 volumes:
   data_pg:
   prometheus-data:
+  grafana-storage:
