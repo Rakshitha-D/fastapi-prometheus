@@ -68,13 +68,6 @@ def get_dataset(dataset_id,request: Request):
         api_requests.labels(api="api.dataset.read",status=500,request_size=str(request.headers.get('content-length', 0)),response_size=str(response_obj.headers.get("content-length",0)),response_time=str(response_time)).inc()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-@app.get("/metrics")
-def get_metrics():
-    return Response(
-        media_type="text/plain",
-        content=prometheus_client.generate_latest(),
-    )
-
 @app.post("/v1/dataset")
 def create_dataset(dataset: Dataset,request: Request):
     try:
@@ -265,3 +258,12 @@ def delete_dataset(dataset_id,request: Request):
         api_requests.labels(api="api.dataset.delete",status=500,request_size=str(request.headers.get('content-length', 0)),response_size=str(response_obj.headers.get("content-length",0)),response_time=str(response_time)).inc()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+@app.get("/metrics")
+def get_metrics():
+    registry = prometheus_client.CollectorRegistry()
+    registry.register(api_requests)
+    registry.register(api_response_duration)
+    metrics_data = prometheus_client.generate_latest(registry=registry)
+    return Response(
+        media_type="text/plain",
+        content=metrics_data)
