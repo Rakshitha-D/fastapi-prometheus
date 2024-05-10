@@ -1,4 +1,3 @@
-from crypt import methods
 import time
 from fastapi import FastAPI, HTTPException, Request, Response,status
 from datetime import datetime
@@ -9,9 +8,20 @@ import prometheus_client
 app = FastAPI()
 
 api_requests = prometheus_client.Counter("api_requests_total", "Number of API calls",["api","status"])
-api_request_size = prometheus_client.Gauge("api_request_size_bytes","Request size of API call in bytes",["api","status","created_time"])
-api_response_size = prometheus_client.Gauge("api_response_size_bytes","Response size of API call in bytes",["api","status","created_time"])
-api_response_duration = prometheus_client.Gauge("api_response_duration_seconds","Response time of api calls",["api","status","created_time"])
+api_request_size = prometheus_client.Gauge("api_request_size_bytes","Request size of API call in bytes",["api","status"])
+api_response_size = prometheus_client.Gauge("api_response_size_bytes","Response size of API call in bytes",["api","status"])
+api_response_duration = prometheus_client.Gauge("api_response_duration_seconds","Response time of api calls",["api","status"])
+
+def handle_response(api,response, status_code, request, start_time):
+    response_json = json.dumps(response, default=str)
+    response_obj = Response(content=response_json)
+    response_time = time.time() - start_time
+
+    api_requests.labels(api=api, status=status_code).inc()
+    api_request_size.labels(api=api, status=status_code).inc(int(request.headers.get('content-length', 0)))
+    api_response_size.labels(api=api, status=status_code).inc(len(response_json.encode('utf-8')) + len(str(response_obj.headers)))
+    api_response_duration.labels(api=api, status=status_code).inc(response_time)
+
 
 def get_dataset_id(dataset_id)->bool:
     connection.cursor.execute("""SELECT * from datasets where dataset_id = %s """,(dataset_id,))
@@ -37,16 +47,9 @@ def get_dataset(dataset_id,request: Request):
                     "responseCode": "OK",
                     "result": dataset
                 }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
-            api_requests.labels(api="api.dataset.read",status=200).inc()
-            api_request_size.labels(api="api.dataset.read",status=200,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-            api_response_size.labels(api="api.dataset.read",status=200,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-            api_response_duration.labels(api="api.dataset.read",status=200,created_time=time.time()).set(response_time)
+            handle_response("api.dataset.read",response, 200, request, start_time)
             return response
         else:
-            start_time = time.time()
             response = {
             "id": "api.dataset.read",
             "ver": "1.0",
@@ -59,22 +62,15 @@ def get_dataset(dataset_id,request: Request):
             "responseCode": "NOT_FOUND",
             "result": {}
             }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
-            api_requests.labels(api="api.dataset.read",status=404).inc()
-            api_request_size.labels(api="api.dataset.read",status=404,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-            api_response_size.labels(api="api.dataset.read",status=404,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-            api_response_duration.labels(api="api.dataset.read",status=404,created_time=time.time()).set(response_time)
+            handle_response("api.dataset.read",response, 404, request, start_time)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=response)
     except HTTPException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=response)
     except Exception:
-        response_time = time.time() - start_time
-        api_requests.labels(api="api.dataset.read",status=500).inc()
-        api_request_size.labels(api="api.dataset.read",status=500,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-        api_response_size.labels(api="api.dataset.read",status=500,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-        api_response_duration.labels(api="api.dataset.read",status=500,created_time=time.time()).set(response_time)
+        response={
+            "err":"INTERNAL_SERVER_ERROR"
+        }
+        handle_response("api.dataset.read",response, 500, request, start_time)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @app.post("/v1/dataset")
@@ -111,16 +107,9 @@ def create_dataset(dataset: Dataset,request: Request):
                 "data": data
             }
             }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
-            api_requests.labels(api="api.dataset.create",status=200).inc()
-            api_request_size.labels(api="api.dataset.create",status=200,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-            api_response_size.labels(api="api.dataset.create",status=200,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-            api_response_duration.labels(api="api.dataset.create",status=200,created_time=time.time()).set(response_time)
+            handle_response("api.dataset.create",response, 200, request, start_time)
             return response
         elif get_dataset_id(dataset.dataset_id):
-            start_time = time.time()
             response = {
                 "id": "api.dataset.create",
                 "ver": "1.0",
@@ -133,22 +122,15 @@ def create_dataset(dataset: Dataset,request: Request):
                 "responseCode": "CONFLICT",
                 "result": {}
             }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
+            handle_response("api.dataset.create",response, 409, request, start_time)
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail=response)
     except HTTPException:
-        api_requests.labels(api="api.dataset.create",status=409).inc()
-        api_request_size.labels(api="api.dataset.create",status=409,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-        api_response_size.labels(api="api.dataset.create",status=409,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-        api_response_duration.labels(api="api.dataset.create",status=409,created_time=time.time()).set(response_time)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail=response)
     except Exception:
-        response_time = time.time() - start_time
-        api_requests.labels(api="api.dataset.create",status=500).inc()
-        api_request_size.labels(api="api.dataset.create",status=500,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-        api_response_size.labels(api="api.dataset.create",status=500,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-        api_response_duration.labels(api="api.dataset.create",status=500,created_time=time.time()).set(response_time)
+        response={
+            "err":"INTERNAL_SERVER_ERROR"
+        }
+        handle_response("api.dataset.create",response, 500, request, start_time)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         
@@ -186,16 +168,9 @@ def update_dataset(dataset_id,dataset: UpdateDataset,request: Request):
                 "id": dataset_id
             }
             }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
-            api_requests.labels(api="api.dataset.update",status=200).inc()
-            api_request_size.labels(api="api.dataset.update",status=200,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-            api_response_size.labels(api="api.dataset.update",status=200,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-            api_response_duration.labels(api="api.dataset.update",status=200,created_time=time.time()).set(response_time)
+            handle_response("api.dataset.update",response, 200, request, start_time)
             return response
         else:
-            start_time = time.time()
             response = {
             "id": "api.dataset.update",
             "ver": "1.0",
@@ -208,21 +183,15 @@ def update_dataset(dataset_id,dataset: UpdateDataset,request: Request):
             "responseCode": "NOT_FOUND",
                 "result": {}
             }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
-            api_requests.labels(api="api.dataset.update",status=404).inc()
-            api_request_size.labels(api="api.dataset.update",status=404,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-            api_response_size.labels(api="api.dataset.update",status=404,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-            api_response_duration.labels(api="api.dataset.update",status=404,created_time=time.time()).set(response_time)
+            handle_response("api.dataset.update",response, 404, request, start_time)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=response)
     except HTTPException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=response)
     except Exception:
-        api_requests.labels(api="api.dataset.update",status=500).inc()
-        api_request_size.labels(api="api.dataset.update",status=500,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-        api_response_size.labels(api="api.dataset.update",status=500,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-        api_response_duration.labels(api="api.dataset.update",status=500,created_time=time.time()).set(response_time)
+        response={
+            "err":"INTERNAL_SERVER_ERROR"
+        }
+        handle_response("api.dataset.update",response, 500, request, start_time)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
 
@@ -243,13 +212,7 @@ def delete_dataset(dataset_id,request: Request):
             "responseCode": "NOT_FOUND",
             "result": {}
             }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
-            api_requests.labels(api="api.dataset.delete",status=404).inc()
-            api_request_size.labels(api="api.dataset.delete",status=404,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-            api_response_size.labels(api="api.dataset.delete",status=404,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-            api_response_duration.labels(api="api.dataset.delete",status=404,created_time=time.time()).set(response_time)
+            handle_response("api.dataset.delete",response, 404, request, start_time)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=response)
         else:
             start_time = time.time()
@@ -269,31 +232,30 @@ def delete_dataset(dataset_id,request: Request):
                 "id": dataset_id
                 }
             }
-            response_json = json.dumps(response, default=str)
-            response_obj = Response(content=response_json)
-            response_time = time.time() - start_time
-            api_requests.labels(api="api.dataset.delete",status=200).inc()
-            api_request_size.labels(api="api.dataset.delete",status=200,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-            api_response_size.labels(api="api.dataset.delete",status=200,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-            api_response_duration.labels(api="api.dataset.delete",status=200,created_time=time.time()).set(response_time)
+            handle_response("api.dataset.delete",response, 200, request, start_time)
             return response
     except HTTPException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=response)
     except Exception:
-        api_requests.labels(api="api.dataset.delete",status=500).inc()
-        api_request_size.labels(api="api.dataset.delete",status=500,created_time=time.time()).set(str(request.headers.get('content-length', 0)))
-        api_response_size.labels(api="api.dataset.delete",status=500,created_time=time.time()).set(str(response_obj.headers.get("content-length",0)))
-        api_response_duration.labels(api="api.dataset.delete",status=500,created_time=time.time()).set(response_time)
+        response={
+            "err":"INTERNAL_SERVER_ERROR"
+        }
+        handle_response("api.dataset.delete",response, 500, request, start_time)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 @app.get("/metrics")
 def get_metrics():
-    registry = prometheus_client.CollectorRegistry()
-    registry.register(api_requests)
-    registry.register(api_response_duration)
-    registry.register(api_request_size)
-    registry.register(api_response_size)
-    metrics_data = prometheus_client.generate_latest(registry=registry)
+    #registry = prometheus_client.CollectorRegistry()
+    #registry.register(api_requests)
+    #registry.register(api_response_duration)
+    #registry.register(api_request_size)
+    #registry.register(api_response_size)
+    #registry.register(api_response_size_sample)
+    #metrics_data = prometheus_client.generate_latest(registry=registry)
+    metrics_data = prometheus_client.generate_latest()
+    api_response_size.clear()
+    api_response_duration.clear()
+    api_request_size.clear()
     return Response(
         media_type="text/plain",
         content=metrics_data)
